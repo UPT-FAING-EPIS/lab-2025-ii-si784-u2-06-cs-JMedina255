@@ -21,4 +21,9 @@
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
 
+  <Target Name="InstallPlaywrightBrowsers" AfterTargets="Build">
+    <Exec Command="pwsh $(MSBuildProjectDirectory)/bin/$(Configuration)/$(TargetFramework)/playwright.ps1 install --with-deps"
+          ContinueOnError="false" />
+  </Target>
+
 </Project>
