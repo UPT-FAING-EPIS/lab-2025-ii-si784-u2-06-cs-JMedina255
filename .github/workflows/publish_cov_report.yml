@@ -1,0 +1,104 @@
+name: Publish Coverage And Videos
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  PROJECT_DIR: UPTSiteTests
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore $PROJECT_DIR/UPTSiteTests.csproj
+
+      - name: Build
+        run: dotnet build $PROJECT_DIR/UPTSiteTests.csproj --no-restore
+
+      - name: Install Playwright Browsers
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: pwsh bin/Debug/net8.0/playwright.ps1 install --with-deps
+
+      - name: Test with coverage
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: dotnet test --collect:"XPlat Code Coverage" --results-directory TestResults -v n
+
+      - name: Install ReportGenerator
+        run: dotnet tool install --global dotnet-reportgenerator-globaltool
+
+      - name: Add dotnet tools to PATH
+        run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Generate coverage report
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: reportgenerator "-reports:TestResults/**/coverage.cobertura.xml" "-targetdir:Cobertura" -reporttypes:HTML
+
+      - name: Prepare Pages artifact
+        shell: bash
+        run: |
+          mkdir -p public/coverage public/videos
+          cp -r "$PROJECT_DIR/Cobertura/." public/coverage/
+          if [ -d "$PROJECT_DIR/bin/Debug/net8.0/videos" ]; then
+            cp -r "$PROJECT_DIR/bin/Debug/net8.0/videos/." public/videos/
+          fi
+          cat <<HTML > public/index.html
+          <!doctype html>
+          <html lang="es">
+          <head>
+            <meta charset="utf-8" />
+            <title>Reportes de QA - UPTSiteTests</title>
+            <style>
+              body { font-family: system-ui, -apple-system, Arial, sans-serif; margin: 2rem; line-height: 1.5; }
+              h1 { color: #0e1d56; }
+              ul { padding-left: 1.2rem; }
+              a { color: #0066cc; }
+            </style>
+          </head>
+          <body>
+            <h1>Reportes del laboratorio</h1>
+            <p>Este sitio publica automaticamente los artefactos generados por Playwright.</p>
+            <ul>
+              <li><a href="coverage/index.html">Ver reporte de cobertura (ReportGenerator)</a></li>
+              <li><a href="videos/">Descargar videos de las pruebas</a></li>
+            </ul>
+            <p>Ultima actualizacion: ${GITHUB_RUN_ID}</p>
+          </body>
+          </html>
+          HTML
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
